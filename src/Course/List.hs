@@ -241,7 +241,7 @@ seqOptional Nil = Full Nil
 seqOptional (Empty :. _) = Empty
 seqOptional (Full x :. xs) = case seqOptional xs of
   Full xs_ -> Full (x :. xs_)
-  otherwise -> Empty
+  Empty -> Empty
 
 -- | Find the first element in the list matching the predicate.
 --
