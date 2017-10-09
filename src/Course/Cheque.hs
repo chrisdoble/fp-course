@@ -187,7 +187,7 @@ data Digit =
   | Seven
   | Eight
   | Nine
-  deriving (Eq, Enum, Bounded)
+  deriving (Eq, Enum, Bounded, Show)
 
 showDigit ::
   Digit
@@ -218,7 +218,7 @@ data Digit3 =
   D1 Digit
   | D2 Digit Digit
   | D3 Digit Digit Digit
-  deriving Eq
+  deriving (Eq, Show)
 
 -- Possibly convert a character to a digit.
 fromChar ::
@@ -323,5 +323,261 @@ fromChar _ =
 dollars ::
   Chars
   -> Chars
-dollars =
-  error "todo: Course.Cheque#dollars"
+dollars s =
+  let (d, c) = parsePrice s
+   in showDollars d ++ " and " ++ showCents c
+
+type Price = (List Digit3, Digit3)
+
+-- | Parses a string into a Price value
+--
+-- >>> parsePrice ""
+-- ([D1 Zero],D2 Zero Zero)
+--
+-- >>> parsePrice "."
+-- ([D1 Zero],D2 Zero Zero)
+--
+-- >>> parsePrice "0."
+-- ([D1 Zero],D2 Zero Zero)
+--
+-- >>> parsePrice ".0"
+-- ([D1 Zero],D2 Zero Zero)
+--
+-- >>> parsePrice "1."
+-- ([D1 One],D2 Zero Zero)
+--
+-- >>> parsePrice ".1"
+-- ([D1 Zero],D2 One Zero)
+--
+-- >>> parsePrice "12"
+-- ([D2 One Two],D2 Zero Zero)
+--
+-- >>> parsePrice ".12"
+-- ([D1 Zero],D2 One Two)
+--
+-- >>> parsePrice "12.34"
+-- ([D2 One Two],D2 Three Four)
+--
+-- >>> parsePrice "123"
+-- ([D3 One Two Three],D2 Zero Zero)
+--
+-- >>> parsePrice "1234"
+-- ([D1 One,D3 Two Three Four],D2 Zero Zero)
+--
+-- >>> parsePrice "1234567.1234"
+-- ([D1 One,D3 Two Three Four,D3 Five Six Seven],D2 One Two)
+parsePrice :: Chars -> Price
+parsePrice cs = let (d, c) = split cs '.' in (parseDollars d, parseCents c)
+
+-- | Splits a string in two at a specific delimeter
+--
+-- >>> split "" ','
+-- ("","")
+--
+-- >>> split "a," ','
+-- ("a","")
+--
+-- >>> split ",a" ','
+-- ("","a")
+--
+-- >>> split "a,b" ','
+-- ("a","b")
+--
+-- >>> split "a,b,c" ','
+-- ("a","b,c")
+split :: Chars -> Char -> (Chars, Chars)
+split Nil _ = (Nil, Nil)
+split (c :. s) d
+  | c == d = (Nil, s)
+  | otherwise = let (l, r) = split s d in (c :. l, r)
+
+parseDollars :: Chars -> List Digit3
+parseDollars cs = case parseDigits cs of
+  Nil -> D1 Zero :. Nil
+  digits -> (toDigit3 . reverse <$>) . reverse . group 3 . reverse $ digits
+
+-- | Parses digits
+--
+-- >>> parseDigits ""
+-- []
+--
+-- >>> parseDigits "1"
+-- [One]
+--
+-- >>> parseDigits "a"
+-- []
+--
+-- >>> parseDigits "1a"
+-- [One]
+--
+-- >>> parseDigits "12"
+-- [One,Two]
+--
+-- >>> parseDigits "a1b2c"
+-- [One,Two]
+parseDigits :: Chars -> List Digit
+parseDigits cs = cs >>= \c -> case fromChar c of
+  Empty -> Nil
+  Full d -> d :. Nil
+
+-- | Groups elements of a list into groups of a particular size
+--
+-- >>> group 0 (1 :. 2 :. 3 :. Nil)
+-- []
+--
+-- >>> group 1 Nil
+-- []
+--
+-- >>> group 1 (1 :. 2 :. 3 :. Nil)
+-- [[1],[2],[3]]
+--
+-- >>> group 2 (1 :. 2 :. 3 :. Nil)
+-- [[1,2],[3]]
+--
+-- >>> group 3 (1 :. 2 :. 3 :. Nil)
+-- [[1,2,3]]
+--
+-- >>> group 4 (1 :. 2 :. 3 :. Nil)
+-- [[1,2,3]]
+group :: Int -> List a -> List (List a)
+group _ Nil = Nil
+group n xs
+  | n == 0 = Nil
+  | n > length xs = xs :. Nil
+  | otherwise = (take n xs) :. group n (drop n xs)
+
+toDigit3 :: List Digit -> Digit3
+toDigit3 (x :. Nil) = D1 x
+toDigit3 (x :. y :. Nil) = D2 x y
+toDigit3 (x :. y :. z :. Nil) = D3 x y z
+toDigit3 _ = error "can't convert to Digit3"
+
+parseCents :: Chars -> Digit3
+parseCents cs = toDigit3 . take 2 . (++ Zero :. Zero :. Nil) . parseDigits $ cs
+
+-- | Shows a dollar value
+--
+-- >>> showDollars $ D1 One :. Nil
+-- "one dollar"
+--
+-- >>> showDollars $ D1 Two :. Nil
+-- "two dollars"
+--
+-- >>> showDollars $ D2 One Zero :. Nil
+-- "ten dollars"
+--
+-- >>> showDollars $ D2 Four Two :. Nil
+-- "forty-two dollars"
+--
+-- >>> showDollars $ D3 One Zero Zero :. Nil
+-- "one hundred dollars"
+--
+-- >>> showDollars $ D3 One Four Two :. Nil
+-- "one hundred and forty-two dollars"
+--
+-- >>> showDollars $ D1 One :. D3 Zero Zero Zero :. Nil
+-- "one thousand dollars"
+--
+-- >>> showDollars $ D1 One :. D3 Zero Zero One :. Nil
+-- "one thousand one dollars"
+--
+-- >>> showDollars $ D1 One :. D3 One One One :. Nil
+-- "one thousand one hundred and eleven dollars"
+--
+-- >>> showDollars $ D1 One :. D3 One One One :. D3 One One One :. Nil
+-- "one million one hundred and eleven thousand one hundred and eleven dollars"
+showDollars :: List Digit3 -> Chars
+showDollars (D1 One :. Nil) = "one dollar"
+showDollars s = foldRight f "dollars" . reverse . zip illion . reverse $ s where
+  f (_, D3 Zero Zero Zero) d = d
+  f ("", s) d = showDigit3 s ++ " " ++ d
+  f (i, s) d = showDigit3 s ++ " " ++ i ++ " " ++ d
+
+-- | Returns a human-readable representation of a Digit3
+--
+-- >>> showDigit3 $ D1 Zero
+-- "zero"
+--
+-- >>> showDigit3 $ D1 One
+-- "one"
+--
+-- >>> showDigit3 $ D2 Zero Zero
+-- "zero"
+--
+-- >>> showDigit3 $ D2 Zero One
+-- "one"
+--
+-- >>> showDigit3 $ D2 One Zero
+-- "ten"
+--
+-- >>> showDigit3 $ D2 One Five
+-- "fifteen"
+--
+-- >>> showDigit3 $ D2 Two Zero
+-- "twenty"
+--
+-- >>> showDigit3 $ D2 Two Five
+-- "twenty-five"
+--
+-- >>> showDigit3 $ D3 Zero Zero Zero
+-- "zero"
+--
+-- >>> showDigit3 $ D3 Zero One Two
+-- "twelve"
+--
+-- >>> showDigit3 $ D3 One Zero Zero
+-- "one hundred"
+--
+-- >>> showDigit3 $ D3 One Zero One
+-- "one hundred and one"
+--
+-- >>> showDigit3 $ D3 One Two Zero
+-- "one hundred and twenty"
+--
+-- >>> showDigit3 $ D3 Nine Nine Nine
+-- "nine hundred and ninety-nine"
+showDigit3 :: Digit3 -> Chars
+showDigit3 (D1 o) = showDigit o
+showDigit3 d@(D2 t o) = case d of
+  D2 Zero _ -> showDigit3 (D1 o)
+  D2 One Zero -> "ten"
+  D2 One One -> "eleven"
+  D2 One Two -> "twelve"
+  D2 One Three -> "thirteen"
+  D2 One Four -> "fourteen"
+  D2 One Five -> "fifteen"
+  D2 One Six -> "sixteen"
+  D2 One Seven -> "seventeen"
+  D2 One Eight -> "eighteen"
+  D2 One Nine -> "nineteen"
+  D2 Two Zero -> "twenty"
+  D2 Three Zero -> "thirty"
+  D2 Four Zero -> "forty"
+  D2 Five Zero -> "fifty"
+  D2 Six Zero -> "sixty"
+  D2 Seven Zero -> "seventy"
+  D2 Eight Zero -> "eighty"
+  D2 Nine Zero -> "ninety"
+  _ -> showDigit3 (D2 t Zero) ++ "-" ++ showDigit3 (D1 o)
+showDigit3 d@(D3 h t o) = case d of
+  D3 Zero _ _ -> showDigit3 (D2 t o)
+  D3 _ Zero Zero -> showDigit h ++ " hundred"
+  _ -> showDigit3 (D3 h Zero Zero) ++ " and " ++ showDigit3 (D2 t o)
+
+-- | Shows a cent value
+--
+-- >>> showCents $ D2 Zero One
+-- "one cent"
+--
+-- >>> showCents $ D2 Zero Two
+-- "two cents"
+--
+-- >>> showCents $ D2 One Zero
+-- "ten cents"
+--
+-- >>> showCents $ D2 Four Two
+-- "forty-two cents"
+showCents :: Digit3 -> Chars
+showCents (D2 Zero One) = "one cent"
+showCents d@(D2 _ _) = showDigit3 d ++ " cents"
+showCents d = error "unsupported Digit3"
